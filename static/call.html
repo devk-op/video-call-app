@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Video Call</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h2>1-on-1 Secure Video Call</h2>
+
+  <div id="video-container">
+    <video id="local" autoplay muted playsinline></video>
+    <video id="remote" autoplay playsinline></video>
+  </div>
+
+  <div id="controls">
+    <button id="toggleMic">Mute Mic</button>
+    <button id="toggleCam">Turn Off Camera</button>
+    <button id="reconnect">Reconnect Video</button>
+    <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
+    <span id="micStatus">🎤 Mic is on</span>
+  </div>
+
+  <div id="status">Initializing...</div>
+
+  <script>
+    window.onload = () => {
+      const params = new URLSearchParams(window.location.search);
+      const roomId = params.get("room");
+      const status = document.getElementById("status");
+      const isCaller = window.location.hash === "#caller";
+
+      let pc;
+      let ws;
+      let localStream = null;
+      let micEnabled = true;
+      let camEnabled = true;
+
+      const localVideo = document.getElementById("local");
+      const remoteVideo = document.getElementById("remote");
+
+      const createPeerConnection = () => {
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
+
+        pc.onicecandidate = event => {
+          if (event.candidate) {
+            ws.send(JSON.stringify({ type: "ice", candidate: event.candidate }));
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          console.log("[ICE STATE]", pc.iceConnectionState);
+          if (["disconnected", "failed"].includes(pc.iceConnectionState)) {
+            status.textContent = "Connection lost. Please try reconnecting.";
+          }
+        };
+
+        pc.ontrack = event => {
+          remoteVideo.srcObject = event.streams[0];
+          remoteVideo.muted = false;
+          remoteVideo.autoplay = true;
+          log("Connected!");
+        };
+      };
+
+      const connectWebSocket = () => {
+        ws = new WebSocket(`wss://${location.host}/ws/${roomId}`);
+
+        ws.onopen = () => {
+          log("WebSocket connected");
+          if (isCaller) {
+            log("You are the caller. Waiting 1 sec to send offer...");
+            setTimeout(() => {
+              pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .then(() => {
+                  ws.send(JSON.stringify({ type: "offer", offer: pc.localDescription }));
+                  log("Offer sent. Calling...");
+                });
+            }, 1000);
+          }
+        };
+
+        ws.onmessage = async event => {
+          const msg = JSON.parse(event.data);
+          console.log("WS MSG:", msg);
+
+          // OFFER handler
+if (msg.type === "offer") {
+  if (pc.signalingState !== "stable") {
+    console.warn("Skipping offer — not in stable state:", pc.signalingState);
+    return;
+  }
+
+  log("Offer received. Waiting for media to be ready before answering...");
+
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+    localVideo.srcObject = stream;
+    localStream = stream;
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    log("Media ready. Creating answer...");
+
+    pc.setRemoteDescription(new RTCSessionDescription(msg.offer))
+      .then(() => pc.createAnswer())
+      .then(answer => pc.setLocalDescription(answer))
+      .then(() => {
+        ws.send(JSON.stringify({ type: "answer", answer: pc.localDescription }));
+        log("Answer sent.");
+      });
+
+  }).catch(err => {
+    console.error("Media access failed on answer side:", err);
+    log("Unable to access camera/mic on answer side.");
+  });
+}
+
+
+
+       // ANSWER handler
+if (msg.type === "answer") {
+  if (pc.signalingState !== "have-local-offer") {
+    console.warn("Skipping answer — unexpected signaling state:", pc.signalingState);
+    return;
+  }
+
+  log("Answer received. Connected!");
+  pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+}
+
+
+          if (msg.type === "ice") {
+            log("ICE candidate received");
+            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          }
+        };
+      };
+
+      const startMedia = () => {
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+          .then(stream => {
+            console.log("✅ getUserMedia success");
+            localVideo.srcObject = stream;
+            localStream = stream;
+            stream.getTracks().forEach(track => {
+              pc.addTrack(track, stream);
+
+              track.onended = () => {
+                console.warn("❌ MediaStreamTrack ended unexpectedly");
+                status.textContent = "Camera/mic stopped. Please refresh or reconnect.";
+              };
+
+              const interval = setInterval(() => {
+                if (track.readyState !== 'live') {
+                  console.warn("Track no longer live:", track.readyState);
+                  status.textContent = `Camera inactive: ${track.readyState}`;
+                  clearInterval(interval);
+                }
+              }, 1000);
+            });
+
+            log("Camera ready. Waiting for peer...");
+          })
+          .catch(err => {
+            console.error("❌ getUserMedia failed:", err);
+            log("Failed to access camera/mic: " + err.message);
+          });
+      };
+
+      createPeerConnection();
+      connectWebSocket();
+      startMedia();
+
+      document.getElementById("toggleMic").onclick = () => {
+        if (!localStream) return;
+        micEnabled = !micEnabled;
+        localStream.getAudioTracks().forEach(track => (track.enabled = micEnabled));
+        document.getElementById("toggleMic").textContent = micEnabled ? "Mute Mic" : "Unmute Mic";
+        document.getElementById("micStatus").textContent = micEnabled ? "🎤 Mic is on" : "🔇 Mic is off";
+      };
+
+      document.getElementById("toggleCam").onclick = () => {
+        if (!localStream) return;
+        camEnabled = !camEnabled;
+        localStream.getVideoTracks().forEach(track => (track.enabled = camEnabled));
+        document.getElementById("toggleCam").textContent = camEnabled ? "Turn Off Camera" : "Turn On Camera";
+      };
+
+      document.getElementById("volume").oninput = (e) => {
+        const vol = parseFloat(e.target.value);
+        if (remoteVideo) remoteVideo.volume = vol;
+      };
+
+      document.getElementById("reconnect").onclick = () => {
+        log("Reconnecting peer connection...");
+        pc.close();
+        createPeerConnection();
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        connectWebSocket();
+      };
+
+      function log(msg) {
+        status.textContent = msg;
+        console.log("[LOG]", msg);
+      }
+    };
+  </script>
+</body>
+</html>

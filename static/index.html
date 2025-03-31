@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Join Call</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Join a Video Call</h1>
+    <input type="text" id="name" placeholder="Your Name" />
+    <input type="text" id="room" placeholder="Room ID" />
+    <button onclick="joinCall(true)">Join as Caller</button>
+    <button onclick="joinCall(false)">Join as Receiver</button>
+  </div>
+
+  <script>
+    function joinCall(isCaller) {
+      const name = document.getElementById("name").value.trim();
+      const room = document.getElementById("room").value.trim();
+      if (name && room) {
+        localStorage.setItem("username", name);
+        const hash = isCaller ? "#caller" : "";
+        window.location.href = `/call.html?room=${room}${hash}`;
+      } else {
+        alert("Please enter name and room ID.");
+      }
+    }
+  </script>
+</body>
+</html>
