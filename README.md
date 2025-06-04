@@ -43,3 +43,19 @@ video-call-app/
 - **FastAPI**: Backend framework for WebSocket signaling.
 - **WebRTC**: Real-time video and audio communication.
 - **HTML/CSS/JavaScript**: Frontend for user interaction.
+
+## Mobile App (React Native)
+A minimal React Native client is available in the `mobile` directory.
+
+### Build
+1. Install Node.js and the React Native CLI.
+2. From `mobile/`, install dependencies with `npm install`.
+3. Start the Metro bundler:
+   ```bash
+   npm start
+   ```
+4. In another terminal run:
+   - **Android**: `npm run android`
+   - **iOS**: `npm run ios`
+
+This will build the respective native projects found in `mobile/android` and `mobile/ios`.
